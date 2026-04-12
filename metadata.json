@@ -1,5 +1,5 @@
 {
   "name": "身心灵体验式学习活动生成器",
-  "description": "输入主题与目的，选择五维元素，快速生成一个可带领、可复盘、可转化的体验式学习活动。",
+  "description": "基于 Gemini AI 的身心灵体验式学习活动智能生成器，支持五维模型反向匹配、PDF 导出及云端同步。",
   "requestFramePermissions": []
 }

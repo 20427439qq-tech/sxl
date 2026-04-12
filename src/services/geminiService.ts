@@ -1,76 +1,61 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { Activity, SelectedDimensions, DimensionKey } from "../types";
+import { Activity, SelectedDimensions } from "../types";
 import { DIMENSIONS } from "../constants";
 
-let aiInstance: GoogleGenAI | null = null;
-
-function getAI() {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured. Please add it to your environment variables.");
-    }
-    aiInstance = new GoogleGenAI({ apiKey });
-  }
-  return aiInstance;
-}
-
 const ACTIVITY_SCHEMA = {
-// ... (保持不变)
-  type: Type.OBJECT,
+  type: "object",
   properties: {
-    title: { type: Type.STRING, description: "活动名称" },
-    positioning: { type: Type.STRING, description: "活动定位/简介" },
+    title: { type: "string", description: "活动名称" },
+    positioning: { type: "string", description: "活动定位/简介" },
     goals: { 
-      type: Type.ARRAY, 
-      items: { type: Type.STRING },
+      type: "array", 
+      items: { type: "string" },
       description: "活动目标列表" 
     },
-    participants: { type: Type.STRING, description: "适用人数范围" },
-    duration: { type: Type.STRING, description: "活动时长" },
-    venue: { type: Type.STRING, description: "场地要求" },
+    participants: { type: "string", description: "适用人数范围" },
+    duration: { type: "string", description: "活动时长" },
+    venue: { type: "string", description: "场地要求" },
     props: { 
-      type: Type.ARRAY, 
-      items: { type: Type.STRING },
+      type: "array", 
+      items: { type: "string" },
       description: "道具要求" 
     },
     steps: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          title: { type: Type.STRING, description: "步骤标题" },
-          content: { type: Type.STRING, description: "详细描述及规则" },
-          guide: { type: Type.STRING, description: "主持人引导语" }
+          title: { type: "string", description: "步骤标题" },
+          content: { type: "string", description: "详细描述及规则" },
+          guide: { type: "string", description: "主持人引导语" }
         },
         required: ["title", "content", "guide"]
       },
       description: "活动流程步骤"
     },
     emotionPath: { 
-      type: Type.ARRAY, 
-      items: { type: Type.STRING },
+      type: "array", 
+      items: { type: "string" },
       description: "情绪路径" 
     },
     risks: { 
-      type: Type.ARRAY, 
-      items: { type: Type.STRING },
+      type: "array", 
+      items: { type: "string" },
       description: "风险提醒" 
     },
     reviewQuestions: { 
-      type: Type.ARRAY, 
-      items: { type: Type.STRING },
+      type: "array", 
+      items: { type: "string" },
       description: "复盘问题" 
     },
     dimensions: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        environment: { type: Type.ARRAY, items: { type: Type.STRING } },
-        location: { type: Type.ARRAY, items: { type: Type.STRING } },
-        senses: { type: Type.ARRAY, items: { type: Type.STRING } },
-        intelligence: { type: Type.ARRAY, items: { type: Type.STRING } },
-        emotions: { type: Type.ARRAY, items: { type: Type.STRING } },
-        learningMethods: { type: Type.ARRAY, items: { type: Type.STRING } }
+        environment: { type: "array", items: { type: "string" } },
+        location: { type: "array", items: { type: "string" } },
+        senses: { type: "array", items: { type: "string" } },
+        intelligence: { type: "array", items: { type: "string" } },
+        emotions: { type: "array", items: { type: "string" } },
+        learningMethods: { type: "array", items: { type: "string" } }
       },
       description: "反向匹配的五维元素（必须从给定的选项中选择）"
     }
@@ -97,21 +82,32 @@ ${DIMENSIONS.map(d => `- ${d.label} (${d.key}): ${d.options.map(o => o.label).jo
    - 必须包含空间移动的逻辑。
    - 必须包含对可能出现的状况的处理方案。`;
 
+async function callGeminiAPI(prompt: string) {
+  const response = await fetch("/api/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt,
+      systemInstruction: SYSTEM_INSTRUCTION,
+      responseSchema: ACTIVITY_SCHEMA,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to generate activity");
+  }
+
+  return response.json();
+}
+
 export async function generateActivityFromAI(topic: string, purpose: string): Promise<Activity> {
   const prompt = `主题：${topic}\n目的：${purpose}\n请设计一个最恰当的体验式活动，并反向匹配五维元素。`;
   
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      responseSchema: ACTIVITY_SCHEMA as any
-    }
-  });
-
-  const result = JSON.parse(response.text);
+  const result = await callGeminiAPI(prompt);
+  
   return {
     ...result,
     id: Math.random().toString(36).substring(2, 9),
@@ -133,18 +129,8 @@ export async function refineActivityFromAI(topic: string, purpose: string, dimen
 
   const prompt = `主题：${topic}\n目的：${purpose}\n\n用户已手动调整了五维元素：\n${dimensionsStr}\n\n请根据这些特定的维度限制，重新设计最贴近的活动方案。保持主题和目的不变，但活动形式必须完美契合这些维度。`;
   
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      responseSchema: ACTIVITY_SCHEMA as any
-    }
-  });
-
-  const result = JSON.parse(response.text);
+  const result = await callGeminiAPI(prompt);
+  
   return {
     ...result,
     id: Math.random().toString(36).substring(2, 9),
