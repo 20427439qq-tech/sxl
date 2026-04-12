@@ -360,7 +360,7 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="p-6 safe-bottom">
+      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 safe-bottom z-20">
         <button 
           disabled={!topic || !purpose}
           onClick={() => setCurrentPage('dimension-select')}
@@ -433,13 +433,13 @@ export default function App() {
         ))}
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex gap-3 safe-bottom">
+      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex gap-3 safe-bottom z-20">
         <button 
           onClick={handleSmartRecommend}
           className="flex-1 py-4 bg-brand-50 text-brand-700 rounded-2xl font-medium flex items-center justify-center gap-2 active:scale-95 transition-transform"
         >
           <Sparkles className="w-4 h-4" />
-          智能推荐
+          推荐
         </button>
         <button 
           onClick={handleRandomSelect}
@@ -452,7 +452,7 @@ export default function App() {
           disabled={isRefining}
           className="flex-[1.5] py-4 bg-brand-600 text-white rounded-2xl font-medium shadow-lg shadow-brand-200 flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
         >
-          {isRefining ? '优化中...' : 'AI 优化生成'}
+          {isRefining ? '优化中...' : 'AI生成'}
           <ArrowRight className="w-5 h-5" />
         </button>
       </footer>
