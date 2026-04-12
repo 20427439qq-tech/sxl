@@ -59,6 +59,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Auth Listener
   useEffect(() => {
@@ -172,13 +173,22 @@ export default function App() {
   };
 
   const handleRefine = async () => {
+    console.log("handleRefine triggered");
     setIsRefining(true);
+    setErrorMsg(null);
     try {
       const activity = await refineActivityFromAI(topic, purpose, selectedDimensions);
       setCurrentActivity(activity);
       setCurrentPage('result');
     } catch (error) {
       console.error("AI Refinement failed:", error);
+      setErrorMsg("AI 尝试失败，正在启用备用方案...");
+      setTimeout(() => {
+        const activity = generateActivity(topic, purpose, selectedDimensions);
+        setCurrentActivity(activity);
+        setCurrentPage('result');
+        setErrorMsg(null);
+      }, 1500);
     } finally {
       setIsRefining(false);
     }
@@ -360,11 +370,11 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 safe-bottom z-20">
+      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-2xl border-t border-slate-100 safe-bottom z-30 shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
         <button 
           disabled={!topic || !purpose}
           onClick={() => setCurrentPage('dimension-select')}
-          className="w-full py-4 bg-brand-600 text-white rounded-2xl font-medium shadow-lg shadow-brand-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none transition-all"
+          className="w-full py-4 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-bold shadow-xl shadow-brand-200/50 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none disabled:active:scale-100"
         >
           下一步：选择五维元素
           <ChevronRight className="w-5 h-5" />
@@ -433,29 +443,44 @@ export default function App() {
         ))}
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex gap-3 safe-bottom z-20">
+      <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-2xl border-t border-slate-100 flex gap-3 safe-bottom z-30 shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
         <button 
           onClick={handleSmartRecommend}
-          className="flex-1 py-4 bg-brand-50 text-brand-700 rounded-2xl font-medium flex items-center justify-center gap-2 active:scale-95 transition-transform"
+          className="flex-1 py-4 bg-gradient-to-br from-brand-50 to-brand-100/50 text-brand-700 rounded-2xl font-semibold flex items-center justify-center gap-2 active:scale-95 transition-all border border-brand-100/50 shadow-sm touch-manipulation"
         >
-          <Sparkles className="w-4 h-4" />
+          <Sparkles className="w-4 h-4 text-brand-500" />
           推荐
         </button>
         <button 
           onClick={handleRandomSelect}
-          className="p-4 bg-slate-100 text-slate-600 rounded-2xl active:scale-95 transition-transform"
+          className="p-4 bg-slate-50 text-slate-500 rounded-2xl active:scale-95 transition-all border border-slate-100 shadow-sm touch-manipulation"
         >
           <Dices className="w-5 h-5" />
         </button>
         <button 
           onClick={handleRefine}
           disabled={isRefining}
-          className="flex-[1.5] py-4 bg-brand-600 text-white rounded-2xl font-medium shadow-lg shadow-brand-200 flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
+          className="flex-[1.8] py-4 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-bold shadow-xl shadow-brand-200/50 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 touch-manipulation"
         >
-          {isRefining ? '优化中...' : 'AI生成'}
-          <ArrowRight className="w-5 h-5" />
+          {isRefining ? (
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>生成中</span>
+            </div>
+          ) : (
+            <>
+              <span className="tracking-wide">AI生成</span>
+              <ArrowRight className="w-5 h-5" />
+            </>
+          )}
         </button>
       </footer>
+
+      {errorMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] bg-red-50 text-red-600 px-4 py-2 rounded-full text-xs font-medium border border-red-100 shadow-lg animate-bounce">
+          {errorMsg}
+        </div>
+      )}
 
       {(isGenerating || isRefining) && (
         <div className="fixed inset-0 z-50 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
