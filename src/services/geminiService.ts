@@ -2,9 +2,21 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Activity, SelectedDimensions, DimensionKey } from "../types";
 import { DIMENSIONS } from "../constants";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured. Please add it to your environment variables.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 const ACTIVITY_SCHEMA = {
+// ... (保持不变)
   type: Type.OBJECT,
   properties: {
     title: { type: Type.STRING, description: "活动名称" },
@@ -88,6 +100,7 @@ ${DIMENSIONS.map(d => `- ${d.label} (${d.key}): ${d.options.map(o => o.label).jo
 export async function generateActivityFromAI(topic: string, purpose: string): Promise<Activity> {
   const prompt = `主题：${topic}\n目的：${purpose}\n请设计一个最恰当的体验式活动，并反向匹配五维元素。`;
   
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
@@ -120,6 +133,7 @@ export async function refineActivityFromAI(topic: string, purpose: string, dimen
 
   const prompt = `主题：${topic}\n目的：${purpose}\n\n用户已手动调整了五维元素：\n${dimensionsStr}\n\n请根据这些特定的维度限制，重新设计最贴近的活动方案。保持主题和目的不变，但活动形式必须完美契合这些维度。`;
   
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,

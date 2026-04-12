@@ -62,6 +62,10 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
+    if (!auth) {
+      setIsAuthReady(true);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsAuthReady(true);
@@ -71,7 +75,7 @@ export default function App() {
 
   // Firestore Listener
   useEffect(() => {
-    if (!user) {
+    if (!user || !db) {
       setSavedActivities(MOCK_ACTIVITIES);
       return;
     }
