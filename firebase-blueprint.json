@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "Activity": {
+      "title": "体验式学习活动",
+      "description": "用户生成的体验式学习活动方案",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "唯一ID" },
+        "userId": { "type": "string", "description": "所有者ID" },
+        "title": { "type": "string", "description": "活动名称" },
+        "topic": { "type": "string", "description": "活动主题" },
+        "purpose": { "type": "string", "description": "活动目的" },
+        "positioning": { "type": "string", "description": "活动定位" },
+        "goals": { "type": "array", "items": { "type": "string" }, "description": "活动目标" },
+        "participants": { "type": "string", "description": "适用人数" },
+        "duration": { "type": "string", "description": "活动时长" },
+        "venue": { "type": "string", "description": "场地要求" },
+        "props": { "type": "array", "items": { "type": "string" }, "description": "道具要求" },
+        "steps": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "content": { "type": "string" },
+              "guide": { "type": "string" }
+            }
+          } 
+        },
+        "emotionPath": { "type": "array", "items": { "type": "string" } },
+        "risks": { "type": "array", "items": { "type": "string" } },
+        "reviewQuestions": { "type": "array", "items": { "type": "string" } },
+        "dimensions": { "type": "object" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "title", "topic", "purpose", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "存储所有生成的活动方案"
+    }
+  }
+}
