@@ -1,4 +1,4 @@
-import { Activity, SelectedDimensions } from "../types";
+import { Activity, SelectedDimensions, AIModelConfig } from "../types";
 import { DIMENSIONS } from "../constants";
 
 const ACTIVITY_SCHEMA = {
@@ -82,7 +82,7 @@ ${DIMENSIONS.map(d => `- ${d.label} (${d.key}): ${d.options.map(o => o.label).jo
    - 必须包含空间移动的逻辑。
    - 必须包含对可能出现的状况的处理方案。`;
 
-async function callGeminiAPI(prompt: string) {
+async function callGeminiAPI(prompt: string, config?: AIModelConfig) {
   const response = await fetch("/api/generate", {
     method: "POST",
     headers: {
@@ -92,6 +92,7 @@ async function callGeminiAPI(prompt: string) {
       prompt,
       systemInstruction: SYSTEM_INSTRUCTION,
       responseSchema: ACTIVITY_SCHEMA,
+      config: config
     }),
   });
 
@@ -103,10 +104,27 @@ async function callGeminiAPI(prompt: string) {
   return response.json();
 }
 
-export async function generateActivityFromAI(topic: string, purpose: string): Promise<Activity> {
+export async function testModelConnection(config: AIModelConfig) {
+  const response = await fetch("/api/test-connection", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ config }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Connection failed");
+  }
+
+  return response.json();
+}
+
+export async function generateActivityFromAI(topic: string, purpose: string, config?: AIModelConfig): Promise<Activity> {
   const prompt = `主题：${topic}\n目的：${purpose}\n请设计一个最恰当的体验式活动，并反向匹配五维元素。`;
   
-  const result = await callGeminiAPI(prompt);
+  const result = await callGeminiAPI(prompt, config);
   
   return {
     ...result,
@@ -121,7 +139,7 @@ export async function generateActivityFromAI(topic: string, purpose: string): Pr
   };
 }
 
-export async function refineActivityFromAI(topic: string, purpose: string, dimensions: SelectedDimensions): Promise<Activity> {
+export async function refineActivityFromAI(topic: string, purpose: string, dimensions: SelectedDimensions, config?: AIModelConfig): Promise<Activity> {
   const dimensionsStr = Object.entries(dimensions)
     .filter(([_, values]) => values.length > 0)
     .map(([key, values]) => `${key}: ${values.join(', ')}`)
@@ -129,7 +147,7 @@ export async function refineActivityFromAI(topic: string, purpose: string, dimen
 
   const prompt = `主题：${topic}\n目的：${purpose}\n\n用户已手动调整了五维元素：\n${dimensionsStr}\n\n请根据这些特定的维度限制，重新设计最贴近的活动方案。保持主题和目的不变，但活动形式必须完美契合这些维度。`;
   
-  const result = await callGeminiAPI(prompt);
+  const result = await callGeminiAPI(prompt, config);
   
   return {
     ...result,

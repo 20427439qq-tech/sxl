@@ -50,3 +50,12 @@ export interface DimensionCategory {
   description: string;
   options: DimensionOption[];
 }
+
+export interface AIModelConfig {
+  id: string;
+  name: string;
+  modelName: string;
+  apiKey: string;
+  baseUrl: string;
+  isDefault?: boolean;
+}

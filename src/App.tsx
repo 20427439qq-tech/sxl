@@ -26,12 +26,16 @@ import {
   MessageSquare,
   History,
   Home,
-  X
+  X,
+  Settings,
+  Activity as ActivityIcon,
+  RefreshCw,
+  Trash
 } from 'lucide-react';
-import { Activity, SelectedDimensions, DimensionKey } from './types';
+import { Activity, SelectedDimensions, DimensionKey, AIModelConfig } from './types';
 import { DIMENSIONS, MOCK_ACTIVITIES } from './constants';
 import { generateActivity } from './utils/generator';
-import { generateActivityFromAI, refineActivityFromAI } from './services/geminiService';
+import { generateActivityFromAI, refineActivityFromAI, testModelConnection } from './services/geminiService';
 import { auth, db, signInWithGoogle, logout } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy } from 'firebase/firestore';
@@ -60,6 +64,62 @@ export default function App() {
   const [isRefining, setIsRefining] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Model Switcher States
+  const [modelConfigs, setModelConfigs] = useState<AIModelConfig[]>([]);
+  const [activeModelId, setActiveModelId] = useState<string>('default');
+  const [isModelSwitcherOpen, setIsModelSwitcherOpen] = useState(false);
+  const [isEditingModel, setIsEditingModel] = useState(false);
+  const [editingModel, setEditingModel] = useState<AIModelConfig | null>(null);
+  const [testStatus, setTestStatus] = useState<{ id: string; status: 'idle' | 'testing' | 'success' | 'error'; message?: string }>({ id: '', status: 'idle' });
+
+  // Load Model Configs
+  useEffect(() => {
+    const saved = localStorage.getItem('ai_model_configs');
+    if (saved) {
+      const configs = JSON.parse(saved);
+      setModelConfigs(configs);
+      const active = localStorage.getItem('active_model_id');
+      if (active) setActiveModelId(active);
+    }
+  }, []);
+
+  // Save Model Configs
+  useEffect(() => {
+    localStorage.setItem('ai_model_configs', JSON.stringify(modelConfigs));
+    localStorage.setItem('active_model_id', activeModelId);
+  }, [modelConfigs, activeModelId]);
+
+  const activeModel = useMemo(() => {
+    return modelConfigs.find(m => m.id === activeModelId) || null;
+  }, [modelConfigs, activeModelId]);
+
+  const handleSaveModel = (config: AIModelConfig) => {
+    setModelConfigs(prev => {
+      const exists = prev.find(m => m.id === config.id);
+      if (exists) {
+        return prev.map(m => m.id === config.id ? config : m);
+      }
+      return [...prev, config];
+    });
+    setIsEditingModel(false);
+    setEditingModel(null);
+  };
+
+  const handleDeleteModel = (id: string) => {
+    setModelConfigs(prev => prev.filter(m => m.id !== id));
+    if (activeModelId === id) setActiveModelId('default');
+  };
+
+  const handleTestConnection = async (config: AIModelConfig) => {
+    setTestStatus({ id: config.id, status: 'testing' });
+    try {
+      await testModelConnection(config);
+      setTestStatus({ id: config.id, status: 'success' });
+    } catch (error: any) {
+      setTestStatus({ id: config.id, status: 'error', message: error.message });
+    }
+  };
 
   // Auth Listener
   useEffect(() => {
@@ -158,15 +218,20 @@ export default function App() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const activity = await generateActivityFromAI(topic, purpose);
+      const activity = await generateActivityFromAI(topic, purpose, activeModel || undefined);
       setCurrentActivity(activity);
       setSelectedDimensions(activity.dimensions);
       setCurrentPage('result');
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Generation failed:", error);
-      const activity = generateActivity(topic, purpose, selectedDimensions);
-      setCurrentActivity(activity);
-      setCurrentPage('result');
+      const detailedError = error.message || JSON.stringify(error);
+      setErrorMsg(`AI 尝试失败: ${detailedError.substring(0, 150)}`);
+      setTimeout(() => {
+        const activity = generateActivity(topic, purpose, selectedDimensions);
+        setCurrentActivity(activity);
+        setCurrentPage('result');
+        setErrorMsg(null);
+      }, 5000);
     } finally {
       setIsGenerating(false);
     }
@@ -177,18 +242,19 @@ export default function App() {
     setIsRefining(true);
     setErrorMsg(null);
     try {
-      const activity = await refineActivityFromAI(topic, purpose, selectedDimensions);
+      const activity = await refineActivityFromAI(topic, purpose, selectedDimensions, activeModel || undefined);
       setCurrentActivity(activity);
       setCurrentPage('result');
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Refinement failed:", error);
-      setErrorMsg("AI 尝试失败，正在启用备用方案...");
+      const detailedError = error.message || JSON.stringify(error);
+      setErrorMsg(`AI 尝试失败: ${detailedError.substring(0, 150)}`);
       setTimeout(() => {
         const activity = generateActivity(topic, purpose, selectedDimensions);
         setCurrentActivity(activity);
         setCurrentPage('result');
         setErrorMsg(null);
-      }, 1500);
+      }, 5000);
     } finally {
       setIsRefining(false);
     }
@@ -317,7 +383,9 @@ export default function App() {
           <ChevronLeft className="w-6 h-6 text-slate-400" />
         </button>
         <h2 className="font-medium">创建活动 (1/3)</h2>
-        <div className="w-10" />
+        <button onClick={() => setIsModelSwitcherOpen(true)} className="p-2 -mr-2 text-slate-400">
+          <Settings className="w-6 h-6" />
+        </button>
       </header>
 
       <main className="flex-1 p-6 space-y-8">
@@ -759,6 +827,148 @@ export default function App() {
     </div>
   );
 
+  const renderModelSwitcher = () => (
+    <div className="fixed inset-0 z-[100] flex flex-col bg-white">
+      <header className="p-4 flex items-center justify-between border-b border-slate-100">
+        <button onClick={() => setIsModelSwitcherOpen(false)} className="p-2 -ml-2">
+          <ChevronLeft className="w-6 h-6 text-slate-400" />
+        </button>
+        <h2 className="font-medium">模型管理</h2>
+        <button 
+          onClick={() => {
+            setEditingModel({ id: Math.random().toString(36).substring(2, 9), name: '', modelName: 'gemini-2.0-flash', apiKey: '', baseUrl: '' });
+            setIsEditingModel(true);
+          }}
+          className="p-2 -mr-2 text-brand-600"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div 
+          onClick={() => setActiveModelId('default')}
+          className={`p-4 rounded-2xl border-2 transition-all ${activeModelId === 'default' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-slate-900">系统默认 (Gemini)</h3>
+              <p className="text-xs text-slate-500">使用系统预设的 API Key</p>
+            </div>
+            {activeModelId === 'default' && <Check className="w-5 h-5 text-brand-600" />}
+          </div>
+        </div>
+
+        {modelConfigs.map(config => (
+          <div 
+            key={config.id}
+            onClick={() => setActiveModelId(config.id)}
+            className={`p-4 rounded-2xl border-2 transition-all ${activeModelId === config.id ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
+          >
+            <div className="flex justify-between items-start mb-2">
+              <div className="flex-1">
+                <h3 className="font-bold text-slate-900">{config.name}</h3>
+                <p className="text-xs text-slate-500">{config.modelName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTestConnection(config);
+                  }}
+                  className={`p-2 rounded-xl text-xs font-medium transition-colors ${
+                    testStatus.id === config.id && testStatus.status === 'success' ? 'bg-green-100 text-green-700' :
+                    testStatus.id === config.id && testStatus.status === 'error' ? 'bg-red-100 text-red-700' :
+                    'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {testStatus.id === config.id && testStatus.status === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : 
+                   testStatus.id === config.id && testStatus.status === 'success' ? '调通' :
+                   testStatus.id === config.id && testStatus.status === 'error' ? '失败' : '测试'}
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingModel(config);
+                    setIsEditingModel(true);
+                  }}
+                  className="p-2 text-slate-400"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteModel(config.id);
+                  }}
+                  className="p-2 text-red-400"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {activeModelId === config.id && (
+              <div className="flex justify-end mt-2">
+                <Check className="w-5 h-5 text-brand-600" />
+              </div>
+            )}
+            {testStatus.id === config.id && testStatus.status === 'error' && (
+              <p className="text-[10px] text-red-500 mt-1">{testStatus.message}</p>
+            )}
+          </div>
+        ))}
+      </main>
+
+      {isEditingModel && editingModel && (
+        <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center p-4">
+          <motion.div 
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 space-y-4"
+          >
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-lg">编辑模型</h3>
+              <button onClick={() => setIsEditingModel(false)}><X className="w-6 h-6 text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <input 
+                placeholder="模型显示名称 (如: 我的GPT4)"
+                className="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-brand-500"
+                value={editingModel.name}
+                onChange={e => setEditingModel({...editingModel, name: e.target.value})}
+              />
+              <input 
+                placeholder="模型名称 (如: gpt-4, gemini-pro)"
+                className="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-brand-500"
+                value={editingModel.modelName}
+                onChange={e => setEditingModel({...editingModel, modelName: e.target.value})}
+              />
+              <input 
+                placeholder="API Key"
+                type="password"
+                className="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-brand-500"
+                value={editingModel.apiKey}
+                onChange={e => setEditingModel({...editingModel, apiKey: e.target.value})}
+              />
+              <input 
+                placeholder="Base URL (留空则使用默认)"
+                className="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-brand-500"
+                value={editingModel.baseUrl}
+                onChange={e => setEditingModel({...editingModel, baseUrl: e.target.value})}
+              />
+            </div>
+            <button 
+              onClick={() => handleSaveModel(editingModel)}
+              className="w-full py-4 bg-brand-600 text-white rounded-2xl font-bold shadow-lg shadow-brand-200"
+            >
+              保存配置
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="max-w-md mx-auto min-h-screen relative bg-slate-50 shadow-2xl">
       <AnimatePresence mode="wait">
@@ -777,6 +987,20 @@ export default function App() {
           {currentPage === 'detail' && renderResult()}
           {currentPage === 'library' && renderLibrary()}
         </motion.div>
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isModelSwitcherOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-0 z-[100]"
+          >
+            {renderModelSwitcher()}
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
