@@ -3,6 +3,8 @@ import { Activity, SelectedDimensions, ActivityStep } from '../types';
 export function generateActivity(
   topic: string,
   purpose: string,
+  participants: string,
+  duration: string,
   dimensions: SelectedDimensions
 ): Activity {
   const id = Math.random().toString(36).substring(2, 9);
@@ -54,8 +56,8 @@ export function generateActivity(
       `通过${dimensions.senses[0] || '感官'}体验深化觉察`,
       `在${dimensions.environment[0] || '特定'}环境中完成转化`
     ],
-    participants: '8到20人',
-    duration: '20分钟',
+    participants: participants || '8到20人',
+    duration: duration || '20分钟',
     venue: dimensions.location.includes('hotel') ? '酒店会议室' : '半开放环境',
     props: ['背景音乐', '记录纸笔'],
     steps,

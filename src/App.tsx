@@ -50,6 +50,8 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [topic, setTopic] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [participants, setParticipants] = useState('10-20人');
+  const [duration, setDuration] = useState('60分钟');
   const [selectedDimensions, setSelectedDimensions] = useState<SelectedDimensions>({
     environment: [],
     location: [],
@@ -218,7 +220,7 @@ export default function App() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const activity = await generateActivityFromAI(topic, purpose, activeModel || undefined);
+      const activity = await generateActivityFromAI(topic, purpose, participants, duration, activeModel || undefined);
       setCurrentActivity(activity);
       setSelectedDimensions(activity.dimensions);
       setCurrentPage('result');
@@ -227,7 +229,7 @@ export default function App() {
       const detailedError = error.message || JSON.stringify(error);
       setErrorMsg(`AI 尝试失败: ${detailedError.substring(0, 150)}`);
       setTimeout(() => {
-        const activity = generateActivity(topic, purpose, selectedDimensions);
+        const activity = generateActivity(topic, purpose, participants, duration, selectedDimensions);
         setCurrentActivity(activity);
         setCurrentPage('result');
         setErrorMsg(null);
@@ -242,7 +244,7 @@ export default function App() {
     setIsRefining(true);
     setErrorMsg(null);
     try {
-      const activity = await refineActivityFromAI(topic, purpose, selectedDimensions, activeModel || undefined);
+      const activity = await refineActivityFromAI(topic, purpose, participants, duration, selectedDimensions, activeModel || undefined);
       setCurrentActivity(activity);
       setCurrentPage('result');
     } catch (error: any) {
@@ -250,7 +252,7 @@ export default function App() {
       const detailedError = error.message || JSON.stringify(error);
       setErrorMsg(`AI 尝试失败: ${detailedError.substring(0, 150)}`);
       setTimeout(() => {
-        const activity = generateActivity(topic, purpose, selectedDimensions);
+        const activity = generateActivity(topic, purpose, participants, duration, selectedDimensions);
         setCurrentActivity(activity);
         setCurrentPage('result');
         setErrorMsg(null);
@@ -435,6 +437,39 @@ export default function App() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700 mb-2 block">活动人数</span>
+            <select
+              value={participants}
+              onChange={(e) => setParticipants(e.target.value)}
+              className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-brand-500 transition-all appearance-none"
+            >
+              <option value="1-5人">1-5人 (微型)</option>
+              <option value="6-12人">6-12人 (小型)</option>
+              <option value="10-20人">10-20人 (中型)</option>
+              <option value="20-50人">20-50人 (大型)</option>
+              <option value="50人以上">50人以上 (超大型)</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700 mb-2 block">活动时长</span>
+            <select
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-brand-500 transition-all appearance-none"
+            >
+              <option value="15分钟">15分钟 (破冰/热身)</option>
+              <option value="30分钟">30分钟 (短时体验)</option>
+              <option value="60分钟">60分钟 (标准工坊)</option>
+              <option value="90分钟">90分钟 (深度体验)</option>
+              <option value="半天">半天 (半日营)</option>
+              <option value="全天">全天 (全日营)</option>
+            </select>
+          </label>
         </div>
       </main>
 

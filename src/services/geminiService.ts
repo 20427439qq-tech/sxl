@@ -83,25 +83,39 @@ ${DIMENSIONS.map(d => `- ${d.label} (${d.key}): ${d.options.map(o => o.label).jo
    - 必须包含对可能出现的状况的处理方案。`;
 
 async function callGeminiAPI(prompt: string, config?: AIModelConfig) {
-  const response = await fetch("/api/generate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      prompt,
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseSchema: ACTIVITY_SCHEMA,
-      config: config
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to generate activity");
+  try {
+    const response = await fetch("/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseSchema: ACTIVITY_SCHEMA,
+        config: config
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to generate activity");
+    }
+
+    return response.json();
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error("请求超时，请重试");
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 export async function testModelConnection(config: AIModelConfig) {
@@ -121,8 +135,8 @@ export async function testModelConnection(config: AIModelConfig) {
   return response.json();
 }
 
-export async function generateActivityFromAI(topic: string, purpose: string, config?: AIModelConfig): Promise<Activity> {
-  const prompt = `主题：${topic}\n目的：${purpose}\n请设计一个最恰当的体验式活动，并反向匹配五维元素。`;
+export async function generateActivityFromAI(topic: string, purpose: string, participants: string, duration: string, config?: AIModelConfig): Promise<Activity> {
+  const prompt = `主题：${topic}\n目的：${purpose}\n活动人数：${participants}\n活动时长：${duration}\n请设计一个最恰当的体验式活动，并反向匹配五维元素。`;
   
   const result = await callGeminiAPI(prompt, config);
   
@@ -139,13 +153,13 @@ export async function generateActivityFromAI(topic: string, purpose: string, con
   };
 }
 
-export async function refineActivityFromAI(topic: string, purpose: string, dimensions: SelectedDimensions, config?: AIModelConfig): Promise<Activity> {
+export async function refineActivityFromAI(topic: string, purpose: string, participants: string, duration: string, dimensions: SelectedDimensions, config?: AIModelConfig): Promise<Activity> {
   const dimensionsStr = Object.entries(dimensions)
     .filter(([_, values]) => values.length > 0)
     .map(([key, values]) => `${key}: ${values.join(', ')}`)
     .join('\n');
 
-  const prompt = `主题：${topic}\n目的：${purpose}\n\n用户已手动调整了五维元素：\n${dimensionsStr}\n\n请根据这些特定的维度限制，重新设计最贴近的活动方案。保持主题和目的不变，但活动形式必须完美契合这些维度。`;
+  const prompt = `主题：${topic}\n目的：${purpose}\n活动人数：${participants}\n活动时长：${duration}\n\n用户已手动调整了五维元素：\n${dimensionsStr}\n\n请根据这些特定的维度限制，重新设计最贴近的活动方案。保持主题和目的不变，但活动形式必须完美契合这些维度。`;
   
   const result = await callGeminiAPI(prompt, config);
   

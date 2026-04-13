@@ -31,14 +31,17 @@ export default async function handler(req: any, res: any) {
       } else {
         if (!apiKey) throw new Error("API Key is missing.");
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: modelName || "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
         await model.generateContent("hi");
         return res.status(200).json({ success: true });
       }
     } catch (error: any) {
       let errorMessage = error.message;
       if (errorMessage.includes('API key not valid')) {
-        errorMessage = "API Key is invalid. Please check your API Key in Settings -> Secrets (or in the Model Switcher if using a custom model).";
+        const maskedKey = apiKey ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}` : '未知';
+        errorMessage = `API Key 无效 (当前使用的 Key: ${maskedKey})。请检查 Settings -> Secrets 中的 GEMINI_API_KEY 是否正确，或者检查模型切换器中是否设置了错误的 Key。`;
+      } else if (errorMessage.includes('429') || errorMessage.includes('quota')) {
+        errorMessage = "API 请求过于频繁或配额已耗尽 (429 Too Many Requests)。请稍后再试，或检查您的 Google AI Studio 配额限制。";
       }
       return res.status(500).json({ error: errorMessage });
     }
@@ -56,11 +59,9 @@ export default async function handler(req: any, res: any) {
       // In a real Express server, you might use dotenv here.
       // For now, we'll just let it fail if it's not set in process.env,
       // but since we are running in Vite, vite.config.ts handles it.
-      // If this file is used, we can hardcode the fallback for the user since they provided it.
-      apiKey = "AIzaSyChrzhnuk1wNjnRrQg1eRpyaBOhMWEMc2M";
     }
     let baseUrl = "";
-    let modelName = "gemini-2.5-flash";
+    let modelName = "gemini-1.5-flash";
 
     if (config) {
       if (config.apiKey) apiKey = config.apiKey;
@@ -68,7 +69,8 @@ export default async function handler(req: any, res: any) {
       if (config.modelName) modelName = config.modelName;
     }
 
-    console.log(`[API] Generating content with model: ${modelName}, baseUrl: ${baseUrl}, apiKey length: ${apiKey ? apiKey.length : 0}, prefix: ${apiKey ? apiKey.substring(0, 5) : 'none'}`);
+    const maskedKey = apiKey ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}` : 'none';
+    console.log(`[API] Generating content with model: ${modelName}, baseUrl: ${baseUrl}, apiKey: ${maskedKey}`);
 
     if (!apiKey) {
       return res.status(500).json({ error: "API Key is not configured. Please set GEMINI_API_KEY in Settings." });
@@ -109,7 +111,7 @@ export default async function handler(req: any, res: any) {
     } else {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({
-        model: modelName || "gemini-2.5-flash",
+        model: modelName || "gemini-1.5-flash",
         systemInstruction: systemInstruction,
       });
 
@@ -128,7 +130,10 @@ export default async function handler(req: any, res: any) {
     console.error("AI Error:", error);
     let errorMessage = error.message || "Internal Server Error";
     if (errorMessage.includes('API key not valid')) {
-      errorMessage = "API Key is invalid. Please check your API Key in Settings -> Secrets (or in the Model Switcher if using a custom model).";
+      const maskedKey = apiKey ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}` : '未知';
+      errorMessage = `API Key 无效 (当前使用的 Key: ${maskedKey})。请检查 Settings -> Secrets 中的 GEMINI_API_KEY 是否正确，或者检查模型切换器中是否设置了错误的 Key。`;
+    } else if (errorMessage.includes('429') || errorMessage.includes('quota')) {
+      errorMessage = "API 请求过于频繁或配额已耗尽 (429 Too Many Requests)。请稍后再试，或检查您的 Google AI Studio 配额限制。";
     }
     res.status(500).json({ error: errorMessage });
   }
