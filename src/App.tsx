@@ -92,19 +92,32 @@ export default function App() {
     }
   }, []);
 
-  // Load Model Configs from Firestore when user logs in
+  // Load Model Configs from Firestore
   useEffect(() => {
-    if (!user || !db) return;
+    if (!db || !isAuthReady) return;
     const loadConfigs = async () => {
       try {
-        const q = query(collection(db, 'model_configs'), where('userId', '==', user.uid));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          const configs = snapshot.docs.map(doc => doc.data().config as AIModelConfig);
-          setModelConfigs(configs);
-          const activeDoc = snapshot.docs.find(doc => doc.data().isActive);
-          if (activeDoc) {
-            setActiveModelId(activeDoc.data().config.id);
+        if (user) {
+          // Admin logged in: load all configs
+          const q = query(collection(db, 'model_configs'), where('userId', '==', user.uid));
+          const snapshot = await getDocs(q);
+          if (!snapshot.empty) {
+            const configs = snapshot.docs.map(doc => doc.data().config as AIModelConfig);
+            setModelConfigs(configs);
+            const activeDoc = snapshot.docs.find(doc => doc.data().isActive);
+            if (activeDoc) {
+              setActiveModelId(activeDoc.data().config.id);
+            }
+          }
+        } else {
+          // Guest: load only the active config
+          const q = query(collection(db, 'model_configs'), where('isActive', '==', true));
+          const snapshot = await getDocs(q);
+          if (!snapshot.empty) {
+            const activeDoc = snapshot.docs[0];
+            const config = activeDoc.data().config as AIModelConfig;
+            setModelConfigs([config]);
+            setActiveModelId(config.id);
           }
         }
       } catch (error) {
@@ -112,7 +125,7 @@ export default function App() {
       }
     };
     loadConfigs();
-  }, [user]);
+  }, [user, isAuthReady]);
 
   // Save Model Configs to LocalStorage
   useEffect(() => {
