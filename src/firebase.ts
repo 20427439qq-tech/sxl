@@ -1,5 +1,5 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, collection, addDoc, query, where, onSnapshot, deleteDoc, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -16,9 +16,17 @@ try {
 
 export const auth = app ? getAuth(app) : null as any;
 export const db = app ? getFirestore(app, firebaseConfig.firestoreDatabaseId) : null as any;
-export const googleProvider = new GoogleAuthProvider();
 
-export const signInWithGoogle = () => auth ? signInWithPopup(auth, googleProvider) : Promise.reject("Auth not initialized");
+export const signInWithCredentials = async (username: string, password: string) => {
+  if (username === 'wfwd' && password === 'wfwd1031') {
+    if (auth) {
+      return signInAnonymously(auth);
+    }
+    return Promise.reject("Auth not initialized");
+  }
+  return Promise.reject("Invalid credentials");
+};
+
 export const logout = () => auth ? auth.signOut() : Promise.reject("Auth not initialized");
 
 // Test connection

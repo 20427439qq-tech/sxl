@@ -20,10 +20,28 @@ service cloud.firestore {
              data.userId == request.auth.uid;
     }
 
+    function isValidModelConfig(data) {
+      return data.userId == request.auth.uid &&
+             data.config is map &&
+             data.config.id is string &&
+             data.isActive is bool;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
     
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /model_configs/{configId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidModelConfig(request.resource.data);
+      allow update: if isAuthenticated() && isOwner(resource.data.userId) && isValidModelConfig(request.resource.data);
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
     match /activities/{activityId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if isAuthenticated() && isValidActivity(request.resource.data);

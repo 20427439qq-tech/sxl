@@ -36,9 +36,9 @@ import { Activity, SelectedDimensions, DimensionKey, AIModelConfig } from './typ
 import { DIMENSIONS, MOCK_ACTIVITIES } from './constants';
 import { generateActivity } from './utils/generator';
 import { generateActivityFromAI, refineActivityFromAI, testModelConnection } from './services/geminiService';
-import { auth, db, signInWithGoogle, logout } from './firebase';
+import { auth, db, signInWithCredentials, logout } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, orderBy, setDoc, getDocs } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -66,6 +66,12 @@ export default function App() {
   const [isRefining, setIsRefining] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  // Login State
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   // Model Switcher States
   const [modelConfigs, setModelConfigs] = useState<AIModelConfig[]>([]);
@@ -75,7 +81,7 @@ export default function App() {
   const [editingModel, setEditingModel] = useState<AIModelConfig | null>(null);
   const [testStatus, setTestStatus] = useState<{ id: string; status: 'idle' | 'testing' | 'success' | 'error'; message?: string }>({ id: '', status: 'idle' });
 
-  // Load Model Configs
+  // Load Model Configs from LocalStorage initially
   useEffect(() => {
     const saved = localStorage.getItem('ai_model_configs');
     if (saved) {
@@ -86,7 +92,29 @@ export default function App() {
     }
   }, []);
 
-  // Save Model Configs
+  // Load Model Configs from Firestore when user logs in
+  useEffect(() => {
+    if (!user || !db) return;
+    const loadConfigs = async () => {
+      try {
+        const q = query(collection(db, 'model_configs'), where('userId', '==', user.uid));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          const configs = snapshot.docs.map(doc => doc.data().config as AIModelConfig);
+          setModelConfigs(configs);
+          const activeDoc = snapshot.docs.find(doc => doc.data().isActive);
+          if (activeDoc) {
+            setActiveModelId(activeDoc.data().config.id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load model configs from DB:", error);
+      }
+    };
+    loadConfigs();
+  }, [user]);
+
+  // Save Model Configs to LocalStorage
   useEffect(() => {
     localStorage.setItem('ai_model_configs', JSON.stringify(modelConfigs));
     localStorage.setItem('active_model_id', activeModelId);
@@ -118,8 +146,43 @@ export default function App() {
     try {
       await testModelConnection(config);
       setTestStatus({ id: config.id, status: 'success' });
+      
+      // Auto save if test passes, but do NOT set as active automatically
+      handleSaveModel(config);
+      
+      if (user && db) {
+        try {
+          const configDocRef = doc(db, 'model_configs', `${user.uid}_${config.id}`);
+          await setDoc(configDocRef, {
+            userId: user.uid,
+            config: config,
+            isActive: activeModelId === config.id,
+            updatedAt: Date.now()
+          }, { merge: true });
+        } catch (dbError) {
+          console.error("Failed to save model config to DB:", dbError);
+        }
+      }
     } catch (error: any) {
       setTestStatus({ id: config.id, status: 'error', message: error.message });
+    }
+  };
+
+  const handleSetDefaultModel = async (configId: string) => {
+    setActiveModelId(configId);
+    if (user && db) {
+      try {
+        modelConfigs.forEach(async (m) => {
+          await setDoc(doc(db, 'model_configs', `${user.uid}_${m.id}`), {
+            userId: user.uid,
+            config: m,
+            isActive: m.id === configId,
+            updatedAt: Date.now()
+          }, { merge: true });
+        });
+      } catch (dbError) {
+        console.error("Failed to update default model in DB:", dbError);
+      }
     }
   };
 
@@ -130,7 +193,11 @@ export default function App() {
       return;
     }
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+      if (u && !u.isAnonymous) {
+        logout();
+      } else {
+        setUser(u);
+      }
       setIsAuthReady(true);
     });
     return () => unsubscribe();
@@ -262,9 +329,26 @@ export default function App() {
     }
   };
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      await signInWithCredentials(loginUsername, loginPassword);
+      setShowLoginModal(false);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch (error: any) {
+      if (error?.message?.includes('admin-restricted-operation')) {
+        setLoginError('登录失败：需要在 Firebase 控制台的 Authentication -> Sign-in method 中启用 "Anonymous" (匿名登录) 提供商。');
+      } else {
+        setLoginError(error.message || '登录失败，请检查账号密码');
+      }
+    }
+  };
+
   const handleSave = async () => {
     if (!user) {
-      await signInWithGoogle();
+      setShowLoginModal(true);
       return;
     }
 
@@ -298,19 +382,45 @@ export default function App() {
 
     setIsExporting(true);
     try {
-      const canvas = await html2canvas(element, {
+      // Create a clone to avoid messing up the UI
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.position = 'absolute';
+      clone.style.top = '-9999px';
+      clone.style.left = '-9999px';
+      clone.style.width = '800px'; // Fixed width for better A4 scaling
+      clone.style.height = 'auto';
+      clone.style.overflow = 'visible';
+      document.body.appendChild(clone);
+
+      const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#f8fafc'
+        backgroundColor: '#f8fafc',
+        windowWidth: 800,
       });
+
+      document.body.removeChild(clone);
       
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+      
       pdf.save(`${currentActivity?.title || '活动方案'}.pdf`);
     } catch (error) {
       console.error("PDF Export failed:", error);
@@ -324,11 +434,11 @@ export default function App() {
       <div className="absolute top-6 right-6">
         {user ? (
           <button onClick={logout} className="flex items-center gap-2 text-xs text-slate-400">
-            <img src={user.photoURL || ''} className="w-6 h-6 rounded-full" referrerPolicy="no-referrer" />
+            <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center font-bold">W</div>
             退出登录
           </button>
         ) : (
-          <button onClick={signInWithGoogle} className="text-xs text-brand-600 font-medium">
+          <button onClick={() => setShowLoginModal(true)} className="text-xs text-brand-600 font-medium">
             登录同步
           </button>
         )}
@@ -385,9 +495,13 @@ export default function App() {
           <ChevronLeft className="w-6 h-6 text-slate-400" />
         </button>
         <h2 className="font-medium">创建活动 (1/3)</h2>
-        <button onClick={() => setIsModelSwitcherOpen(true)} className="p-2 -mr-2 text-slate-400">
-          <Settings className="w-6 h-6" />
-        </button>
+        {user ? (
+          <button onClick={() => setIsModelSwitcherOpen(true)} className="p-2 -mr-2 text-slate-400">
+            <Settings className="w-6 h-6" />
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
       </header>
 
       <main className="flex-1 p-6 space-y-8">
@@ -882,23 +996,35 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto p-4 space-y-4">
         <div 
-          onClick={() => setActiveModelId('default')}
-          className={`p-4 rounded-2xl border-2 transition-all ${activeModelId === 'default' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
+          onClick={() => handleSetDefaultModel('default')}
+          className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${activeModelId === 'default' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
         >
           <div className="flex justify-between items-center">
             <div>
               <h3 className="font-bold text-slate-900">系统默认 (Gemini)</h3>
               <p className="text-xs text-slate-500">使用系统预设的 API Key</p>
             </div>
-            {activeModelId === 'default' && <Check className="w-5 h-5 text-brand-600" />}
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSetDefaultModel('default');
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                  activeModelId === 'default' ? 'bg-brand-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {activeModelId === 'default' ? '已默认' : '设为默认'}
+              </button>
+            </div>
           </div>
         </div>
 
         {modelConfigs.map(config => (
           <div 
             key={config.id}
-            onClick={() => setActiveModelId(config.id)}
-            className={`p-4 rounded-2xl border-2 transition-all ${activeModelId === config.id ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
+            onClick={() => handleSetDefaultModel(config.id)}
+            className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${activeModelId === config.id ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-white'}`}
           >
             <div className="flex justify-between items-start mb-2">
               <div className="flex-1">
@@ -906,6 +1032,17 @@ export default function App() {
                 <p className="text-xs text-slate-500">{config.modelName}</p>
               </div>
               <div className="flex items-center gap-2">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSetDefaultModel(config.id);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                    activeModelId === config.id ? 'bg-brand-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {activeModelId === config.id ? '已默认' : '设为默认'}
+                </button>
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1037,6 +1174,68 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-slate-900">登录同步</h3>
+                <button onClick={() => setShowLoginModal(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-50 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">账号名</label>
+                  <input 
+                    type="text" 
+                    value={loginUsername}
+                    onChange={e => setLoginUsername(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                    placeholder="请输入账号名"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">密码</label>
+                  <input 
+                    type="password" 
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                    placeholder="请输入密码"
+                    required
+                  />
+                </div>
+                
+                {loginError && (
+                  <p className="text-red-500 text-xs">{loginError}</p>
+                )}
+                
+                <button 
+                  type="submit"
+                  className="w-full py-3 bg-brand-600 text-white rounded-xl font-medium shadow-md shadow-brand-200 active:scale-95 transition-transform mt-4"
+                >
+                  登录
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
